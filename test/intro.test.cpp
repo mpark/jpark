@@ -77,8 +77,12 @@ TEST(Json, ArrayOfArrayOfStrings) {
 }
 
 struct Resource {
-  std::string name;
-  std::string role;
+  Resource(const std::string &name, const std::string &role)
+      : name_(name), role_(role) {}
+  std::string name_;
+  const std::string &role() const { return role_; }
+  private:
+  std::string role_;
 };
 
 struct Framework {
@@ -101,18 +105,23 @@ TEST(Json, SummaryObject) {
 
 TEST(Json, ElaborateObject) {
   auto resource = json::object<Resource>(
-    json::field("name", &Resource::name, json::string),
+    json::field("name", &Resource::name_, json::string),
     json::field("role", &Resource::role, json::string)
   );
   auto framework = json::object<Framework>(
     json::field("id", &Framework::id, json::string),
     json::field("name", &Framework::name, json::string),
     json::field("checkpoint", &Framework::checkpoint, json::boolean),
+    json::field("id-name",
+                [](const Framework &f) { return f.id + "-" + f.name; },
+                json::string),
     json::field("resources", &Framework::resources, json::array(resource))
   );
   EXPECT_EQ(
-      R"~~({"id":"framework","name":"summary","checkpoint":true,)~~"
-      R"~~("resources":[{"name":"cpus","role":"ads"},{"name":"mem","role":"ads"}]})~~",
+      R"~~({"id":"framework","name":"summary",)~~"
+       R"~~("checkpoint":true,"id-name":"framework-summary",)~~"
+       R"~~("resources":[{"name":"cpus","role":"ads"},)~~"
+                    R"~~({"name":"mem","role":"ads"}]})~~",
       stringify(framework(Framework{
           "framework", "summary", true, {{"cpus", "ads"}, {"mem", "ads"}}})));
 }

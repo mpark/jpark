@@ -7,6 +7,8 @@
 #include <meta/meta.hpp>
 
 #include <apply.hpp>
+#include <function_traits.hpp>
+#include <invoke.hpp>
 
 namespace json {
 
@@ -61,13 +63,13 @@ namespace json {
   template <typename T, typename U, typename... Fs>
   struct IsConvertible<T, Object<U, Fs...>> : std::is_convertible<T *, U *> {};
 
-  /* `convertible_check` is used to provide a helpful error message. */
+  /* `type_match` is used to provide a helpful error message. */
 
   template <typename T, typename U>
-  meta::_t<std::enable_if<is_convertible<T, U>{}>> convertible_check() {}
+  meta::_t<std::enable_if<is_convertible<T, U>{}>> type_match() {}
 
   template <typename T, typename U>
-  meta::_t<std::enable_if<!is_convertible<T, U>{}>> convertible_check() = delete;
+  meta::_t<std::enable_if<!is_convertible<T, U>{}>> type_match() = delete;
 
   /* `Format` is a proxy object that can be passed to an output stream. */
 
@@ -163,21 +165,40 @@ namespace json {
   template <typename S>
   Array<S> array(const S &s) { return {s}; }
 
-  template <typename R, typename T, typename S>
+  template <typename P, typename S, typename T>
   struct Field {
+    Field(const char *n, P p, S s) : name(n), projection(p), schema(s) {
+      using R = meta::_t<std::decay<meta::_t<std::result_of<P(const T &)>>>>;
+      type_match<R, S>();
+    }
+
     void write(std::ostream &strm, const T &value) const {
-      strm << json::string(name) << ":" << schema(value.*member);
+      strm << json::string(name) << ":" << schema(invoke(projection, value));
     }
 
     const char *name;
-    R T::*member;
+    P projection;
     S schema;
   };
 
   template <typename R, typename T, typename S>
-  Field<R, T, S> field(const char *name, R T::*member, S schema) {
-    convertible_check<R, S>();
+  Field<R T::*, S, T> field(const char *name, R T::*member, S schema) {
     return {name, member, schema};
+  }
+
+  template <typename P, typename S>
+  meta::_t<std::enable_if<(function_traits<P>::arity == 1),
+  Field<P, S, typename function_traits<P>::template argument_type<0>>>> field(
+      const char *name, P projection, S schema) {
+    return {name, projection, schema};
+  }
+
+  template <typename P, typename S>
+  meta::_t<std::enable_if<(function_traits<P>::arity != 1)>> field(
+      const char *, P, S) {
+    static_assert(meta::apply<meta::always<std::false_type>, P, S>::value,
+                  "A non-member projection function for a field must have the "
+                  "object type as its only parameter");
   }
 
   template <typename T, typename... Fs>
